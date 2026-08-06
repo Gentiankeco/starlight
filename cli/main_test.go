@@ -3,6 +3,8 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -50,5 +52,44 @@ func TestPromptServiceNameRePromptsOnInvalidInput(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "Invalid service name") {
 		t.Errorf("expected re-prompt message for invalid input, got output: %q", out.String())
+	}
+}
+
+func TestRepoRootFromFindsGitRootRegardlessOfStartingDepth(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, ".git"), []byte("gitdir: fake"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Simulate this project's real layout: a nested Go module (like
+	// cli/go.mod) that sits below the true repo root and must not be
+	// mistaken for it.
+	nested := filepath.Join(root, "cli", "sub", "deeper")
+	if err := os.MkdirAll(nested, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "cli", "go.mod"), []byte("module fake\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	wantRoot, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, start := range []string{root, filepath.Join(root, "cli"), nested} {
+		t.Run(start, func(t *testing.T) {
+			got, err := repoRootFrom(start)
+			if err != nil {
+				t.Fatalf("repoRootFrom(%q) returned error: %v", start, err)
+			}
+			gotRoot, err := filepath.EvalSymlinks(got)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if gotRoot != wantRoot {
+				t.Errorf("repoRootFrom(%q) = %q, want %q", start, gotRoot, wantRoot)
+			}
+		})
 	}
 }

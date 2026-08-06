@@ -83,7 +83,30 @@ func writeApplicationManifest(destPath, serviceName string) error {
 	return os.WriteFile(destPath, []byte(rendered), 0o644)
 }
 
-func runCreateService(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
+// repoRootFrom walks up from startDir looking for a ".git" entry (a
+// directory in a normal checkout, or a file in a git worktree), which
+// marks the root of this repository. This is deliberately independent of
+// cli/go.mod: the CLI's own module lives in a subdirectory (cli/), not at
+// the repo root, so anchoring on go.mod would resolve to cli/ itself when
+// the binary is run from inside that directory.
+func repoRootFrom(startDir string) (string, error) {
+	dir, err := filepath.Abs(startDir)
+	if err != nil {
+		return "", err
+	}
+	for {
+		if _, err := os.Stat(filepath.Join(dir, ".git")); err == nil {
+			return dir, nil
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return "", fmt.Errorf("could not locate repository root: no .git found above %s", startDir)
+		}
+		dir = parent
+	}
+}
+
+func runCreateService(args []string, startDir string, stdin io.Reader, stdout, stderr io.Writer) error {
 	flags := flag.NewFlagSet("create-service", flag.ContinueOnError)
 	flags.SetOutput(stderr)
 	nameFlag := flags.String("name", "", "service name in kebab-case (skips the interactive prompt)")
@@ -105,8 +128,13 @@ func runCreateService(args []string, stdin io.Reader, stdout, stderr io.Writer) 
 		serviceName = name
 	}
 
-	chartDir := filepath.Join("platform", "charts", serviceName)
-	appPath := filepath.Join("platform", "gitops", serviceName+"-app.yaml")
+	repoRoot, err := repoRootFrom(startDir)
+	if err != nil {
+		return err
+	}
+
+	chartDir := filepath.Join(repoRoot, "platform", "charts", serviceName)
+	appPath := filepath.Join(repoRoot, "platform", "gitops", serviceName+"-app.yaml")
 
 	if err := writeTemplateDir(chartDir, serviceName); err != nil {
 		return fmt.Errorf("generating chart: %w", err)
@@ -116,7 +144,7 @@ func runCreateService(args []string, stdin io.Reader, stdout, stderr io.Writer) 
 	}
 
 	fmt.Fprintf(stdout, `
-Generated service %q:
+Generated service %q in repo %s:
   - %s
   - %s
 
@@ -128,7 +156,7 @@ applied to the cluster. Review the generated files, then:
   3. git push
   4. kubectl apply -f %s   # registers the service with Argo CD
 
-`, serviceName, chartDir, appPath, chartDir, appPath, serviceName, appPath)
+`, serviceName, repoRoot, chartDir, appPath, chartDir, appPath, serviceName, appPath)
 
 	return nil
 }
@@ -139,7 +167,13 @@ func main() {
 		os.Exit(1)
 	}
 
-	if err := runCreateService(os.Args[2:], os.Stdin, os.Stdout, os.Stderr); err != nil {
+	cwd, err := os.Getwd()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "error:", err)
+		os.Exit(1)
+	}
+
+	if err := runCreateService(os.Args[2:], cwd, os.Stdin, os.Stdout, os.Stderr); err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)
 		os.Exit(1)
 	}
