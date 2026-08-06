@@ -10,11 +10,15 @@ Starlight is a self-service golden-path platform that lets developers deploy a n
 
 ## 4. Key Capabilities
 
+- **Golden-path CLI**: `starlight create-service` ([cli/](cli/)) scaffolds a new microservice — a Helm chart under `platform/charts/<name>/` and an Argo CD `Application` manifest under `platform/gitops/` — from the sample-service pattern. It only generates files; committing, pushing, and `kubectl apply` to register with Argo CD stay explicit, human-run steps. See [cli/README.md](cli/README.md).
+
 ## 5. Architecture Diagram
 
 ## 6. Deployment Flow
 
 ## 7. Technology Choices
+
+- **GitOps engine**: [Argo CD](https://argo-cd.readthedocs.io/) v3.5.0 (Helm chart `argo/argo-cd` v10.2.3) was installed via Helm into the `argocd` namespace on the local `docker-desktop` Kubernetes cluster. See [platform/gitops/install-argocd.md](platform/gitops/install-argocd.md) for the exact install commands.
 
 ## 8. Repository Structure
 

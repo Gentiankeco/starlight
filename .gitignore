@@ -21,3 +21,9 @@ kubeconfig.yml
 .DS_Store
 Thumbs.db
 desktop.ini
+
+# Go build artifacts
+cli/starlight-cli
+cli/starlight-cli.exe
+cli/starlight
+cli/starlight.exe
