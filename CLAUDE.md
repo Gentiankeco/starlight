@@ -19,9 +19,24 @@ and open-source tooling; no paid licenses or third-party SaaS are used.
 
 ## Current Phase
 
-Phase 1: building the golden-path CLI and local k3d environment.
+Phase 1: building the golden-path CLI and GitOps core (Argo CD) on a local cluster.
 
 ## Tooling
 
-All tooling must be free and open-source. Current stack includes k3d, kubectl, Helm,
+All tooling must be free and open-source. Current stack includes kubectl, Helm,
 Argo CD, Prometheus, and Grafana — no paid SaaS.
+
+## Environment Assumption
+
+Local development targets Docker Desktop Kubernetes (single-node), currently
+running as context "docker-desktop". k3d may be introduced later specifically for
+multi-node failure-scenario testing (Phase 4/5 reliability work), documented
+separately when that increment happens. Manifests and charts should stay
+Kubernetes-distro-agnostic where possible; AWS-specific concerns (IRSA, EKS Pod
+Identity, VPC networking) are deferred to a later cloud-parity phase and should not
+be assumed in local-only work.
+
+## Safety
+
+Never run destructive commands (terraform destroy, kubectl delete namespace,
+git push --force) without explicit confirmation from the user in the current session.
