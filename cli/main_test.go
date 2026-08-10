@@ -55,6 +55,62 @@ func TestPromptServiceNameRePromptsOnInvalidInput(t *testing.T) {
 	}
 }
 
+func TestPromptImageAcceptsValidInput(t *testing.T) {
+	input := "ghcr.io/gentiankeco/starlight-demo-app:latest\n"
+	r := bufio.NewReader(strings.NewReader(input))
+	var out bytes.Buffer
+
+	got, err := promptImage(r, &out)
+	if err != nil {
+		t.Fatalf("promptImage returned error: %v", err)
+	}
+	if got != "ghcr.io/gentiankeco/starlight-demo-app:latest" {
+		t.Errorf("promptImage() = %q, want %q", got, "ghcr.io/gentiankeco/starlight-demo-app:latest")
+	}
+}
+
+func TestPromptImageRePromptsOnEmptyInput(t *testing.T) {
+	input := "\n   \nnginx:latest\n"
+	r := bufio.NewReader(strings.NewReader(input))
+	var out bytes.Buffer
+
+	got, err := promptImage(r, &out)
+	if err != nil {
+		t.Fatalf("promptImage returned error: %v", err)
+	}
+	if got != "nginx:latest" {
+		t.Errorf("promptImage() = %q, want %q", got, "nginx:latest")
+	}
+	if strings.Count(out.String(), "must not be empty") != 2 {
+		t.Errorf("expected two re-prompt messages for blank input, got output: %q", out.String())
+	}
+}
+
+func TestSplitImageRef(t *testing.T) {
+	cases := []struct {
+		name           string
+		image          string
+		wantRepository string
+		wantTag        string
+	}{
+		{"simple image with tag", "nginx:latest", "nginx", "latest"},
+		{"registry path with tag", "ghcr.io/you/your-app:v1", "ghcr.io/you/your-app", "v1"},
+		{"multi-segment path with tag", "ghcr.io/gentiankeco/starlight-demo-app:latest", "ghcr.io/gentiankeco/starlight-demo-app", "latest"},
+		{"no tag defaults to latest", "nginx", "nginx", "latest"},
+		{"registry with port and no tag", "localhost:5000/myapp", "localhost:5000/myapp", "latest"},
+		{"registry with port and tag", "localhost:5000/myapp:v2", "localhost:5000/myapp", "v2"},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			gotRepository, gotTag := splitImageRef(c.image)
+			if gotRepository != c.wantRepository || gotTag != c.wantTag {
+				t.Errorf("splitImageRef(%q) = (%q, %q), want (%q, %q)", c.image, gotRepository, gotTag, c.wantRepository, c.wantTag)
+			}
+		})
+	}
+}
+
 func TestRepoRootFromFindsGitRootRegardlessOfStartingDepth(t *testing.T) {
 	root := t.TempDir()
 	if err := os.WriteFile(filepath.Join(root, ".git"), []byte("gitdir: fake"), 0o644); err != nil {

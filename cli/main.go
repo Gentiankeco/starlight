@@ -19,6 +19,8 @@ import (
 var templatesFS embed.FS
 
 const placeholderName = "sample-service"
+const placeholderImageRepository = "nginx"
+const placeholderImageTag = "1.27"
 
 var serviceNamePattern = regexp.MustCompile(`^[a-z0-9]+(-[a-z0-9]+)*$`)
 
@@ -46,10 +48,43 @@ func promptServiceName(r *bufio.Reader, w io.Writer) (string, error) {
 	}
 }
 
+// promptImage reads a container image reference from r, re-prompting on w
+// until a non-empty value is entered.
+func promptImage(r *bufio.Reader, w io.Writer) (string, error) {
+	for {
+		fmt.Fprint(w, "Container image (e.g. nginx:latest or ghcr.io/you/your-app:v1): ")
+		line, err := r.ReadString('\n')
+		if err != nil {
+			return "", err
+		}
+		image := strings.TrimSpace(line)
+		if image != "" {
+			return image, nil
+		}
+		fmt.Fprintln(w, "Container image must not be empty.")
+	}
+}
+
+// splitImageRef splits a container image reference into its repository and
+// tag, e.g. "ghcr.io/gentiankeco/starlight-demo-app:latest" becomes
+// ("ghcr.io/gentiankeco/starlight-demo-app", "latest"). The split happens
+// on the last colon that appears after the last slash, so registry hosts
+// with a port (e.g. "localhost:5000/app") are not mistaken for a tag
+// separator. If no tag is present, "latest" is returned.
+func splitImageRef(image string) (repository, tag string) {
+	lastSlash := strings.LastIndex(image, "/")
+	lastColon := strings.LastIndex(image, ":")
+	if lastColon > lastSlash {
+		return image[:lastColon], image[lastColon+1:]
+	}
+	return image, "latest"
+}
+
 // writeTemplateDir walks the embedded chart template and writes it to
 // destDir, substituting every occurrence of the placeholder service name
-// with serviceName.
-func writeTemplateDir(destDir, serviceName string) error {
+// with serviceName, and — in values.yaml only — the placeholder image
+// repository and tag with imageRepository and imageTag.
+func writeTemplateDir(destDir, serviceName, imageRepository, imageTag string) error {
 	const embedRoot = "templates/chart"
 	return fs.WalkDir(templatesFS, embedRoot, func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
@@ -65,6 +100,10 @@ func writeTemplateDir(destDir, serviceName string) error {
 			return err
 		}
 		rendered := strings.ReplaceAll(string(content), placeholderName, serviceName)
+		if rel == "values.yaml" {
+			rendered = strings.Replace(rendered, "repository: "+placeholderImageRepository, "repository: "+imageRepository, 1)
+			rendered = strings.Replace(rendered, `tag: "`+placeholderImageTag+`"`, `tag: "`+imageTag+`"`, 1)
+		}
 		return os.WriteFile(target, []byte(rendered), 0o644)
 	})
 }
@@ -114,6 +153,8 @@ func runCreateService(args []string, startDir string, stdin io.Reader, stdout, s
 		return err
 	}
 
+	stdinReader := bufio.NewReader(stdin)
+
 	var serviceName string
 	if *nameFlag != "" {
 		if !isValidServiceName(*nameFlag) {
@@ -121,12 +162,18 @@ func runCreateService(args []string, startDir string, stdin io.Reader, stdout, s
 		}
 		serviceName = *nameFlag
 	} else {
-		name, err := promptServiceName(bufio.NewReader(stdin), stdout)
+		name, err := promptServiceName(stdinReader, stdout)
 		if err != nil {
 			return fmt.Errorf("reading service name: %w", err)
 		}
 		serviceName = name
 	}
+
+	image, err := promptImage(stdinReader, stdout)
+	if err != nil {
+		return fmt.Errorf("reading container image: %w", err)
+	}
+	imageRepository, imageTag := splitImageRef(image)
 
 	repoRoot, err := repoRootFrom(startDir)
 	if err != nil {
@@ -136,7 +183,7 @@ func runCreateService(args []string, startDir string, stdin io.Reader, stdout, s
 	chartDir := filepath.Join(repoRoot, "platform", "charts", serviceName)
 	appPath := filepath.Join(repoRoot, "platform", "gitops", serviceName+"-app.yaml")
 
-	if err := writeTemplateDir(chartDir, serviceName); err != nil {
+	if err := writeTemplateDir(chartDir, serviceName, imageRepository, imageTag); err != nil {
 		return fmt.Errorf("generating chart: %w", err)
 	}
 	if err := writeApplicationManifest(appPath, serviceName); err != nil {

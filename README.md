@@ -10,7 +10,7 @@ Starlight is a self-service golden-path platform that lets developers deploy a n
 
 ## 4. Key Capabilities
 
-- **Golden-path CLI**: `starlight create-service` ([cli/](cli/)) scaffolds a new microservice — a Helm chart under `platform/charts/<name>/` and an Argo CD `Application` manifest under `platform/gitops/` — from the sample-service pattern. It only generates files; committing, pushing, and `kubectl apply` to register with Argo CD stay explicit, human-run steps. See [cli/README.md](cli/README.md).
+- **Golden-path CLI**: `starlight create-service` ([cli/](cli/)) scaffolds a new microservice — a Helm chart under `platform/charts/<name>/` and an Argo CD `Application` manifest under `platform/gitops/` — from the sample-service pattern. The developer is prompted for the service name and its container image (e.g. `ghcr.io/you/your-app:v1`), which populates the chart's `values.yaml`; the image is no longer hardcoded to `nginx`. It only generates files; committing, pushing, and `kubectl apply` to register with Argo CD stay explicit, human-run steps. See [cli/README.md](cli/README.md).
 
 ## 5. Architecture Diagram
 

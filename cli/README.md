@@ -35,19 +35,29 @@ working directory):
 ./cli/starlight create-service
 ```
 
-You'll be prompted for a service name:
+You'll be prompted for a service name, then a container image:
 
 ```
 Service name: Payments Api
 Invalid service name "Payments Api": use lowercase letters, numbers, and hyphens only (kebab-case), e.g. "order-events-consumer".
 Service name: payments-api
+Container image (e.g. nginx:latest or ghcr.io/you/your-app:v1): ghcr.io/gentiankeco/payments-api:v1
 ```
 
 Names must be kebab-case: lowercase letters, numbers, and hyphens only
 (matching the Kubernetes resource naming convention in `CLAUDE.md`).
 Invalid input is rejected and you're re-prompted.
 
-You can also skip the interactive prompt with `-name`:
+The container image can be any valid image reference — a bare name like
+`nginx:latest` or a full registry path like `ghcr.io/you/your-app:v1`. Blank
+input is rejected and you're re-prompted. The reference is split into
+repository and tag (on the last colon after the last slash, so a registry
+host with a port such as `localhost:5000/app` isn't mistaken for a tag) and
+used to populate `image.repository` and `image.tag` in the generated
+chart's `values.yaml`. If no tag is given, `latest` is used.
+
+You can also skip the interactive service name prompt with `-name` (the
+image prompt still runs):
 
 ```sh
 ./cli/starlight create-service -name payments-api
@@ -55,11 +65,13 @@ You can also skip the interactive prompt with `-name`:
 
 ## Output
 
-For a service named `payments-api`, this generates:
+For a service named `payments-api` with image `ghcr.io/you/payments-api:v1`,
+this generates:
 
 - `platform/charts/payments-api/` — a copy of the sample-service Helm
   chart (Chart.yaml, values.yaml, deployment + service templates) with
-  names substituted
+  names substituted and `values.yaml`'s `image.repository` /
+  `image.tag` set from the image you entered
 - `platform/gitops/payments-api-app.yaml` — an Argo CD `Application`
   targeting namespace `payments-api`, with automated sync and self-heal
   enabled
