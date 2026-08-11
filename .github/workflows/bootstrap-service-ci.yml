@@ -1,0 +1,97 @@
+# Bootstraps a developer's target repository with the golden-path CI
+# workflow generated for their service, delivered as a "devops-ci" branch
+# for the developer to review and merge.
+#
+# Why not the default GITHUB_TOKEN:
+#   The token GitHub injects automatically (secrets.GITHUB_TOKEN) is
+#   scoped to the repository the workflow runs in (this repo, starlight).
+#   It has no access to any other repository, so it cannot clone or push
+#   to a developer's separate service repo. Cross-repo writes require a
+#   token that has been explicitly granted access to the target repo,
+#   which is what BOOTSTRAP_TOKEN (a personal access token stored as a
+#   repo secret) provides.
+#
+# Why a PAT and not a GitHub App:
+#   A GitHub App with fine-grained, per-repo installation permissions is
+#   the correct long-term answer for this kind of cross-repo automation —
+#   it isn't tied to one person, its access is auditable and revocable per
+#   installation, and it doesn't carry a human's full account scope. A
+#   classic PAT here is a deliberate simplification to get the platform
+#   bootstrap flow working now; the tradeoffs (long-lived, broadly
+#   scoped, tied to whoever generated it) are accepted explicitly rather
+#   than by accident.
+#
+#   See docs/adr/0002-ci-bootstrap-auth.md for the full decision record,
+#   including the conditions under which we'd migrate to a GitHub App.
+
+name: bootstrap-service-ci
+
+on:
+  workflow_dispatch:
+    inputs:
+      service_name:
+        description: "Service name (must match platform/ci-templates/<service_name>-ci.yml)"
+        required: true
+        type: string
+      target_repo:
+        description: "Target repository in owner/repo format, e.g. Gentiankeco/starlight-demo-app"
+        required: true
+        type: string
+
+env:
+  GH_TOKEN: ${{ secrets.BOOTSTRAP_TOKEN }}
+  GITHUB_TOKEN: ${{ secrets.BOOTSTRAP_TOKEN }}
+
+jobs:
+  bootstrap:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout starlight (to read the CI template)
+        uses: actions/checkout@v4
+
+      - name: Verify CI template exists
+        run: |
+          set -euo pipefail
+          TEMPLATE_PATH="platform/ci-templates/${{ inputs.service_name }}-ci.yml"
+          if [ ! -f "$TEMPLATE_PATH" ]; then
+            echo "::error::No CI template found for service '${{ inputs.service_name }}'. Run starlight create-service first."
+            exit 1
+          fi
+          echo "TEMPLATE_PATH=$TEMPLATE_PATH" >> "$GITHUB_ENV"
+
+      - name: Clone target repo
+        run: git clone "https://${GH_TOKEN}@github.com/${{ inputs.target_repo }}" target-repo
+
+      - name: Create or reset devops-ci branch
+        working-directory: target-repo
+        run: git checkout -B devops-ci
+
+      - name: Copy CI template into target repo
+        run: |
+          set -euo pipefail
+          mkdir -p target-repo/.github/workflows
+          cp "$TEMPLATE_PATH" target-repo/.github/workflows/build-and-push.yml
+
+      - name: Commit
+        working-directory: target-repo
+        run: |
+          set -euo pipefail
+          git config user.name "Starlight Platform"
+          git config user.email "platform@starlight"
+          git add .github/workflows/build-and-push.yml
+          git commit -m "ci: add Starlight golden-path CI workflow [automated]"
+
+      - name: Push devops-ci branch
+        working-directory: target-repo
+        # Force push is intentional: this branch is owned by the bootstrap
+        # automation, and step "d" above resets it to main on every run,
+        # so the remote branch (if any) must be overwritten, not merged.
+        run: git push --force origin devops-ci
+
+      - name: Print success message
+        run: |
+          echo "Pushed the Starlight golden-path CI workflow to ${{ inputs.target_repo }}."
+          echo ""
+          echo "Branch: https://github.com/${{ inputs.target_repo }}/tree/devops-ci"
+          echo ""
+          echo "Ask the developer to review this branch and merge when ready."
