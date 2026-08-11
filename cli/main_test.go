@@ -86,6 +86,52 @@ func TestPromptImageRePromptsOnEmptyInput(t *testing.T) {
 	}
 }
 
+func TestPromptContainerPortDefaultsOnEmptyInput(t *testing.T) {
+	r := bufio.NewReader(strings.NewReader("\n"))
+	var out bytes.Buffer
+
+	got, err := promptContainerPort(r, &out)
+	if err != nil {
+		t.Fatalf("promptContainerPort returned error: %v", err)
+	}
+	if got != "8080" {
+		t.Errorf("promptContainerPort() = %q, want %q", got, "8080")
+	}
+}
+
+func TestPromptContainerPortAcceptsCustomPort(t *testing.T) {
+	r := bufio.NewReader(strings.NewReader("9090\n"))
+	var out bytes.Buffer
+
+	got, err := promptContainerPort(r, &out)
+	if err != nil {
+		t.Fatalf("promptContainerPort returned error: %v", err)
+	}
+	if got != "9090" {
+		t.Errorf("promptContainerPort() = %q, want %q", got, "9090")
+	}
+}
+
+func TestPromptContainerPortRePromptsOnInvalidInput(t *testing.T) {
+	// Covers letters, zero, and a port above the valid range, each of
+	// which must be rejected and re-prompted before a valid port is
+	// accepted.
+	input := "notaport\n0\n99999\n3000\n"
+	r := bufio.NewReader(strings.NewReader(input))
+	var out bytes.Buffer
+
+	got, err := promptContainerPort(r, &out)
+	if err != nil {
+		t.Fatalf("promptContainerPort returned error: %v", err)
+	}
+	if got != "3000" {
+		t.Errorf("promptContainerPort() = %q, want %q", got, "3000")
+	}
+	if strings.Count(out.String(), "Invalid container port") != 3 {
+		t.Errorf("expected three re-prompt messages for invalid input, got output: %q", out.String())
+	}
+}
+
 func TestSplitImageRef(t *testing.T) {
 	cases := []struct {
 		name           string

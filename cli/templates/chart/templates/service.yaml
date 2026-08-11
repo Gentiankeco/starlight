@@ -10,4 +10,4 @@ spec:
     app: sample-service
   ports:
     - port: {{ .Values.service.port }}
-      targetPort: 80
+      targetPort: {{ .Values.containerPort }}

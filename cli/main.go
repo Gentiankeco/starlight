@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 )
 
@@ -21,6 +22,8 @@ var templatesFS embed.FS
 const placeholderName = "sample-service"
 const placeholderImageRepository = "nginx"
 const placeholderImageTag = "1.27"
+const placeholderContainerPort = "80"
+const defaultContainerPort = "8080"
 
 var serviceNamePattern = regexp.MustCompile(`^[a-z0-9]+(-[a-z0-9]+)*$`)
 
@@ -65,6 +68,37 @@ func promptImage(r *bufio.Reader, w io.Writer) (string, error) {
 	}
 }
 
+// isValidContainerPort reports whether s is a valid TCP port number: an
+// integer between 1 and 65535.
+func isValidContainerPort(s string) bool {
+	n, err := strconv.Atoi(s)
+	if err != nil {
+		return false
+	}
+	return n >= 1 && n <= 65535
+}
+
+// promptContainerPort reads a container port from r, re-prompting on w
+// until a valid port (1-65535) is entered. An empty line accepts the
+// default of 8080.
+func promptContainerPort(r *bufio.Reader, w io.Writer) (string, error) {
+	for {
+		fmt.Fprint(w, "Container port (default 8080, press Enter to accept): ")
+		line, err := r.ReadString('\n')
+		if err != nil {
+			return "", err
+		}
+		port := strings.TrimSpace(line)
+		if port == "" {
+			return defaultContainerPort, nil
+		}
+		if isValidContainerPort(port) {
+			return port, nil
+		}
+		fmt.Fprintf(w, "Invalid container port %q: enter a number between 1 and 65535.\n", port)
+	}
+}
+
 // splitImageRef splits a container image reference into its repository and
 // tag, e.g. "ghcr.io/gentiankeco/starlight-demo-app:latest" becomes
 // ("ghcr.io/gentiankeco/starlight-demo-app", "latest"). The split happens
@@ -83,8 +117,9 @@ func splitImageRef(image string) (repository, tag string) {
 // writeTemplateDir walks the embedded chart template and writes it to
 // destDir, substituting every occurrence of the placeholder service name
 // with serviceName, and — in values.yaml only — the placeholder image
-// repository and tag with imageRepository and imageTag.
-func writeTemplateDir(destDir, serviceName, imageRepository, imageTag string) error {
+// repository, tag, and container port with imageRepository, imageTag, and
+// containerPort.
+func writeTemplateDir(destDir, serviceName, imageRepository, imageTag, containerPort string) error {
 	const embedRoot = "templates/chart"
 	return fs.WalkDir(templatesFS, embedRoot, func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
@@ -103,6 +138,7 @@ func writeTemplateDir(destDir, serviceName, imageRepository, imageTag string) er
 		if rel == "values.yaml" {
 			rendered = strings.Replace(rendered, "repository: "+placeholderImageRepository, "repository: "+imageRepository, 1)
 			rendered = strings.Replace(rendered, `tag: "`+placeholderImageTag+`"`, `tag: "`+imageTag+`"`, 1)
+			rendered = strings.Replace(rendered, "containerPort: "+placeholderContainerPort, "containerPort: "+containerPort, 1)
 		}
 		return os.WriteFile(target, []byte(rendered), 0o644)
 	})
@@ -175,6 +211,11 @@ func runCreateService(args []string, startDir string, stdin io.Reader, stdout, s
 	}
 	imageRepository, imageTag := splitImageRef(image)
 
+	containerPort, err := promptContainerPort(stdinReader, stdout)
+	if err != nil {
+		return fmt.Errorf("reading container port: %w", err)
+	}
+
 	repoRoot, err := repoRootFrom(startDir)
 	if err != nil {
 		return err
@@ -183,7 +224,7 @@ func runCreateService(args []string, startDir string, stdin io.Reader, stdout, s
 	chartDir := filepath.Join(repoRoot, "platform", "charts", serviceName)
 	appPath := filepath.Join(repoRoot, "platform", "gitops", serviceName+"-app.yaml")
 
-	if err := writeTemplateDir(chartDir, serviceName, imageRepository, imageTag); err != nil {
+	if err := writeTemplateDir(chartDir, serviceName, imageRepository, imageTag, containerPort); err != nil {
 		return fmt.Errorf("generating chart: %w", err)
 	}
 	if err := writeApplicationManifest(appPath, serviceName); err != nil {

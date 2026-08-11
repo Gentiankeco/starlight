@@ -35,13 +35,15 @@ working directory):
 ./cli/starlight create-service
 ```
 
-You'll be prompted for a service name, then a container image:
+You'll be prompted for a service name, then a container image, then the
+port your container listens on:
 
 ```
 Service name: Payments Api
 Invalid service name "Payments Api": use lowercase letters, numbers, and hyphens only (kebab-case), e.g. "order-events-consumer".
 Service name: payments-api
 Container image (e.g. nginx:latest or ghcr.io/you/your-app:v1): ghcr.io/gentiankeco/payments-api:v1
+Container port (default 8080, press Enter to accept): 8080
 ```
 
 Names must be kebab-case: lowercase letters, numbers, and hyphens only
@@ -56,8 +58,17 @@ host with a port such as `localhost:5000/app` isn't mistaken for a tag) and
 used to populate `image.repository` and `image.tag` in the generated
 chart's `values.yaml`. If no tag is given, `latest` is used.
 
+The container port is the port your application listens on inside the
+container. Press Enter to accept the default of `8080`, or enter any
+port number from 1-65535. Invalid input (non-numeric, `0`, or above
+`65535`) is rejected and you're re-prompted. The value populates
+`containerPort` in the generated chart's `values.yaml`, which drives the
+container's `containerPort`, the liveness/readiness probe ports, and the
+Service's `targetPort` — keeping them in sync so the pod actually
+becomes ready and reachable.
+
 You can also skip the interactive service name prompt with `-name` (the
-image prompt still runs):
+image and container port prompts still run):
 
 ```sh
 ./cli/starlight create-service -name payments-api
@@ -71,7 +82,7 @@ this generates:
 - `platform/charts/payments-api/` — a copy of the sample-service Helm
   chart (Chart.yaml, values.yaml, deployment + service templates) with
   names substituted and `values.yaml`'s `image.repository` /
-  `image.tag` set from the image you entered
+  `image.tag` / `containerPort` set from what you entered
 - `platform/gitops/payments-api-app.yaml` — an Argo CD `Application`
   targeting namespace `payments-api`, with automated sync and self-heal
   enabled
