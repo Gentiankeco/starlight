@@ -1,6 +1,0 @@
-apiVersion: v2
-name: sample-service
-description: Minimal sample microservice used to prove out the Starlight GitOps loop
-type: application
-version: 0.1.0
-appVersion: "1.27"
