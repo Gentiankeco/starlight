@@ -16,7 +16,7 @@ import (
 	"strings"
 )
 
-//go:embed templates/chart templates/app.yaml
+//go:embed templates/chart templates/app.yaml templates/ci-workflow.yml
 var templatesFS embed.FS
 
 const placeholderName = "sample-service"
@@ -24,6 +24,7 @@ const placeholderImageRepository = "nginx"
 const placeholderImageTag = "1.27"
 const placeholderContainerPort = "80"
 const defaultContainerPort = "8080"
+const placeholderGitHubUsername = "sample-owner"
 
 var serviceNamePattern = regexp.MustCompile(`^[a-z0-9]+(-[a-z0-9]+)*$`)
 
@@ -99,6 +100,29 @@ func promptContainerPort(r *bufio.Reader, w io.Writer) (string, error) {
 	}
 }
 
+// isValidGitHubUsername reports whether s is a non-empty string containing
+// no spaces, suitable for use in a ghcr.io image path.
+func isValidGitHubUsername(s string) bool {
+	return s != "" && !strings.Contains(s, " ")
+}
+
+// promptGitHubUsername reads a GitHub username or org from r, re-prompting
+// on w until a valid (non-empty, space-free) value is entered.
+func promptGitHubUsername(r *bufio.Reader, w io.Writer) (string, error) {
+	for {
+		fmt.Fprint(w, "GitHub username or org (for ghcr.io image path, e.g. Gentiankeco): ")
+		line, err := r.ReadString('\n')
+		if err != nil {
+			return "", err
+		}
+		username := strings.TrimSpace(line)
+		if isValidGitHubUsername(username) {
+			return username, nil
+		}
+		fmt.Fprintf(w, "Invalid GitHub username %q: must be non-empty and contain no spaces.\n", username)
+	}
+}
+
 // splitImageRef splits a container image reference into its repository and
 // tag, e.g. "ghcr.io/gentiankeco/starlight-demo-app:latest" becomes
 // ("ghcr.io/gentiankeco/starlight-demo-app", "latest"). The split happens
@@ -152,6 +176,21 @@ func writeApplicationManifest(destPath, serviceName string) error {
 		return err
 	}
 	rendered := strings.ReplaceAll(string(content), placeholderName, serviceName)
+	if err := os.MkdirAll(filepath.Dir(destPath), 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(destPath, []byte(rendered), 0o644)
+}
+
+// writeCIWorkflow renders the embedded GitHub Actions CI workflow template
+// for serviceName and githubUsername and writes it to destPath.
+func writeCIWorkflow(destPath, serviceName, githubUsername string) error {
+	content, err := templatesFS.ReadFile("templates/ci-workflow.yml")
+	if err != nil {
+		return err
+	}
+	rendered := strings.ReplaceAll(string(content), placeholderName, serviceName)
+	rendered = strings.ReplaceAll(rendered, placeholderGitHubUsername, githubUsername)
 	if err := os.MkdirAll(filepath.Dir(destPath), 0o755); err != nil {
 		return err
 	}
@@ -216,6 +255,11 @@ func runCreateService(args []string, startDir string, stdin io.Reader, stdout, s
 		return fmt.Errorf("reading container port: %w", err)
 	}
 
+	githubUsername, err := promptGitHubUsername(stdinReader, stdout)
+	if err != nil {
+		return fmt.Errorf("reading GitHub username: %w", err)
+	}
+
 	repoRoot, err := repoRootFrom(startDir)
 	if err != nil {
 		return err
@@ -223,6 +267,7 @@ func runCreateService(args []string, startDir string, stdin io.Reader, stdout, s
 
 	chartDir := filepath.Join(repoRoot, "platform", "charts", serviceName)
 	appPath := filepath.Join(repoRoot, "platform", "gitops", serviceName+"-app.yaml")
+	ciPath := filepath.Join(repoRoot, "platform", "ci-templates", serviceName+"-ci.yml")
 
 	if err := writeTemplateDir(chartDir, serviceName, imageRepository, imageTag, containerPort); err != nil {
 		return fmt.Errorf("generating chart: %w", err)
@@ -230,21 +275,28 @@ func runCreateService(args []string, startDir string, stdin io.Reader, stdout, s
 	if err := writeApplicationManifest(appPath, serviceName); err != nil {
 		return fmt.Errorf("generating Argo CD Application manifest: %w", err)
 	}
+	if err := writeCIWorkflow(ciPath, serviceName, githubUsername); err != nil {
+		return fmt.Errorf("generating CI workflow template: %w", err)
+	}
 
 	fmt.Fprintf(stdout, `
 Generated service %q in repo %s:
+  - %s
   - %s
   - %s
 
 This CLI only generates files — nothing has been committed, pushed, or
 applied to the cluster. Review the generated files, then:
 
-  1. git add %s %s
+  1. git add %s %s %s
   2. git commit -m "feat: add %s service"
   3. git push
   4. kubectl apply -f %s   # registers the service with Argo CD
+  5. Copy %s into your app repo at .github/workflows/build-and-push.yml
+     — or trigger the Starlight bootstrap workflow to deliver it
+     automatically.
 
-`, serviceName, repoRoot, chartDir, appPath, chartDir, appPath, serviceName, appPath)
+`, serviceName, repoRoot, chartDir, appPath, ciPath, chartDir, appPath, ciPath, serviceName, appPath, ciPath)
 
 	return nil
 }

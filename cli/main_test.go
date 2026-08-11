@@ -132,6 +132,36 @@ func TestPromptContainerPortRePromptsOnInvalidInput(t *testing.T) {
 	}
 }
 
+func TestPromptGitHubUsernameAcceptsValidInput(t *testing.T) {
+	r := bufio.NewReader(strings.NewReader("Gentiankeco\n"))
+	var out bytes.Buffer
+
+	got, err := promptGitHubUsername(r, &out)
+	if err != nil {
+		t.Fatalf("promptGitHubUsername returned error: %v", err)
+	}
+	if got != "Gentiankeco" {
+		t.Errorf("promptGitHubUsername() = %q, want %q", got, "Gentiankeco")
+	}
+}
+
+func TestPromptGitHubUsernameRePromptsOnEmptyInput(t *testing.T) {
+	input := "\n   \nGentiankeco\n"
+	r := bufio.NewReader(strings.NewReader(input))
+	var out bytes.Buffer
+
+	got, err := promptGitHubUsername(r, &out)
+	if err != nil {
+		t.Fatalf("promptGitHubUsername returned error: %v", err)
+	}
+	if got != "Gentiankeco" {
+		t.Errorf("promptGitHubUsername() = %q, want %q", got, "Gentiankeco")
+	}
+	if strings.Count(out.String(), "Invalid GitHub username") != 2 {
+		t.Errorf("expected two re-prompt messages for empty input, got output: %q", out.String())
+	}
+}
+
 func TestSplitImageRef(t *testing.T) {
 	cases := []struct {
 		name           string
@@ -193,5 +223,33 @@ func TestRepoRootFromFindsGitRootRegardlessOfStartingDepth(t *testing.T) {
 				t.Errorf("repoRootFrom(%q) = %q, want %q", start, gotRoot, wantRoot)
 			}
 		})
+	}
+}
+
+func TestRunCreateServiceGeneratesCIWorkflowTemplate(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, ".git"), []byte("gitdir: fake"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	input := "payments-api\nghcr.io/gentiankeco/payments-api:v1\n8080\nGentiankeco\n"
+	stdin := strings.NewReader(input)
+	var stdout, stderr bytes.Buffer
+
+	if err := runCreateService(nil, root, stdin, &stdout, &stderr); err != nil {
+		t.Fatalf("runCreateService returned error: %v (stderr: %s)", err, stderr.String())
+	}
+
+	ciPath := filepath.Join(root, "platform", "ci-templates", "payments-api-ci.yml")
+	content, err := os.ReadFile(ciPath)
+	if err != nil {
+		t.Fatalf("expected generated CI workflow template at %s, got error: %v", ciPath, err)
+	}
+
+	if !strings.Contains(string(content), "payments-api") {
+		t.Errorf("CI workflow template does not contain service name %q:\n%s", "payments-api", content)
+	}
+	if !strings.Contains(string(content), "Gentiankeco") {
+		t.Errorf("CI workflow template does not contain GitHub username %q:\n%s", "Gentiankeco", content)
 	}
 }
